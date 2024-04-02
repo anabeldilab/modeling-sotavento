@@ -3,47 +3,83 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-def load_and_convert_to_csv(file_path, output_dir):
-    base_file_name = Path(file_path).stem
-    data_frame = pd.read_csv(file_path, sep=';', engine='python', decimal=',')
-    return base_file_name, data_frame
+def plot_data(data, plot_type='bar', title='', xlabel='', ylabel='', save_path=None, **kwargs):
+    """
+    Crea y guarda un gráfico basado en los parámetros proporcionados.
+    
+    Args:
+        data: Datos a graficar. La forma esperada depende del tipo de gráfico.
+        plot_type (str): Tipo de gráfico ('bar', 'line', 'scatter', 'box', 'heatmap').
+        title (str): Título del gráfico.
+        xlabel (str): Etiqueta para el eje X.
+        ylabel (str): Etiqueta para el eje Y.
+        save_path (Path or str, optional): Ruta donde guardar el gráfico. Si es None, no se guarda.
+        **kwargs: Argumentos clave-valor adicionales específicos de cada tipo de gráfico.
+    """
+    plt.figure(figsize=kwargs.pop('figsize', (10, 6)))
+    xticks = kwargs.pop('xticks', None)
+    xticklabels = kwargs.pop('xticklabels', None)
+    
+    if plot_type == 'bar':
+        sns.barplot(data=data, **kwargs)
+    elif plot_type == 'line':
+        sns.lineplot(data=data, **kwargs)
+    elif plot_type == 'scatter':
+        sns.scatterplot(data=data, **kwargs)
+    elif plot_type == 'box':
+        sns.boxplot(data=data, **kwargs)
+    elif plot_type == 'heatmap':
+        sns.heatmap(data=data, **kwargs)
+    else:
+        raise ValueError(f"Unsupported plot_type: {plot_type}")
+
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+
+    if xticks is not None and xticklabels is not None:
+        plt.xticks(ticks=xticks, labels=xticklabels)
+
+    plt.tight_layout()
+    
+    if save_path:
+        output_path = Path(save_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(output_path)
+        plt.close()
+    else:
+        plt.show()
 
 
 def plot_nan_percentage(data, name):
     print(f" - Processing DataFrame: {name}")
-    plt.figure(figsize=(10, 6))
-    title = f'NaN Percentage in {name}'
-    nan_percentage = data.isnull().sum() / len(data) * 100
-    ax = nan_percentage.plot(kind='bar', title=title, ylabel='Percentage of NaN values')
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    plt.tight_layout()
-    
-    # Guardar la gráfica en graphs
-    output_path = Path(f'graphs/nan_detection/{name}') / f'nan_percentage_{name}.png'
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(output_path)
-    plt.close()
+    nan_percentage_per_feature = data.isnull().sum() / len(data) * 100
+    plot_data(
+        data=nan_percentage_per_feature,
+        plot_type='bar',
+        title=f'NaN Percentage in {name}',
+        xlabel='Columns',
+        ylabel='Percentage of NaN values',
+        save_path=f'graphs/nan_detection/{name}/nan_percentage_{name}.png'
+    )
 
 
-def plot_hourly_nulls_per_day(data_frame, date_column, title):
+def plot_hourly_nulls_per_day(data_frame, title):
     data_frame = data_frame.copy()
     
     # Identificar columnas que no son completamente nulas y tienen al menos un valor nulo
     cols_with_some_nulls = [col for col in data_frame.columns if data_frame[col].isnull().any() and not data_frame[col].isnull().all()]
 
-
     for col in cols_with_some_nulls:
         print(f"Processing column: {col}")
 
-        # Contar nulos de la col en cuestión
+        # Contar nulos de la columna en cuestión
         data_frame['partial_nulls'] = data_frame[col].isnull()
-        # Me quedo con los true
+        # Filtrar para quedarse solo con los registros con nulos
         partial_nulls = data_frame[data_frame['partial_nulls']].copy()
         # Obtener el día y la hora de cada nulo parcial
-        partial_nulls['date'] = partial_nulls[date_column].dt.date
-        partial_nulls['hour'] = partial_nulls[date_column].dt.hour
+        partial_nulls['date'] = partial_nulls.index.date
+        partial_nulls['hour'] = partial_nulls.index.hour
 
         # Obtener las fechas únicas para iterar sobre ellas
         unique_dates = partial_nulls['date'].unique()
@@ -52,31 +88,30 @@ def plot_hourly_nulls_per_day(data_frame, date_column, title):
             # Filtrar por fecha específica
             daily_data = partial_nulls[partial_nulls['date'] == date]
             # Contar la cantidad de nulos parciales por hora
-            daily_data = daily_data.groupby('hour')['partial_nulls'].count().reset_index()
+            daily_data = daily_data.groupby('hour')['partial_nulls'].count().reset_index(name='count')
 
-            # Graficar
-            plt.figure(figsize=(12, 8))
-            plt.bar(daily_data['hour'], daily_data['partial_nulls'], color='skyblue', width=1.0)
-            plt.xticks(range(0, 24), [f"{hour}:00" for hour in range(0, 24)], rotation=45)
-            plt.title(f'Presencia de Nulos Parciales en {col} por Hora del Día - {date} - {title}')
-            plt.xlabel('Hora del Día')
-            plt.ylabel('Cantidad de Horas con Algunos Nulos')
-            plt.grid(axis='y', linestyle='--')
-            plt.tight_layout()
-
-            # Guardar la gráfica
-            output_path = Path(f'graphs/nan_detection/{title}/{col}') / f'hourly_partial_nulls_{date}_{title}.png'
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            plt.savefig(output_path)
-            plt.close()
+            # Preparar datos para la función de gráficos general
+            plot_data(
+                data=daily_data, 
+                plot_type='bar',
+                title=f'Presencia de Nulos Parciales en {col} por Hora del Día - {date} - {title}',
+                xlabel='Hora del Día',
+                ylabel='Cantidad de Horas con Algunos Nulos',
+                save_path=f'graphs/nan_detection/{title}/{col}/hourly_partial_nulls_{date}_{title}.png',
+                x='hour',  # Argumento de seaborn para el eje X
+                y='count',  # Argumento de seaborn para el eje Y
+                color='skyblue',  # Argumento de seaborn para el color
+                figsize=(12, 8)  # Argumento de la función plot_data para el tamaño de figura
+            )
 
 
-def plot_daily_nulls_per_column(data_frame, date_column, title):
+
+def plot_daily_nulls_per_column(data_frame, title):
     data_frame = data_frame.copy()
     
     # Crear un DataFrame con cada día del año en el rango del dataset
-    start_date = data_frame[date_column].dt.date.min()
-    end_date = data_frame[date_column].dt.date.max()
+    start_date = data_frame.index.min().date()
+    end_date = data_frame.index.max().date()
     all_dates = pd.DataFrame({'date': pd.date_range(start=start_date, end=end_date, freq='D')})
     
     # Convertir 'date' en all_dates a tipo date para compatibilidad
@@ -88,143 +123,206 @@ def plot_daily_nulls_per_column(data_frame, date_column, title):
     for col in cols_with_some_nulls:
         # Contar los nulos en la columna actual por día
         data_frame['is_null'] = data_frame[col].isnull().astype(int)
-        nulls_by_day = data_frame.groupby(data_frame[date_column].dt.date)['is_null'].sum().reset_index()
-        nulls_by_day.rename(columns={'is_null': 'count', date_column: 'date'}, inplace=True)
+
+        nulls_by_day = data_frame.groupby(data_frame.index.date)['is_null'].sum().reset_index(name='count')
+        nulls_by_day.rename(columns={'index': 'date'}, inplace=True)
 
         # Fusionar con el DataFrame de todos los días, asegurando todos los días del año estén presentes
         daily_nulls = pd.merge(all_dates, nulls_by_day, on='date', how='left').fillna(0)
 
         # Graficar
-        plt.figure(figsize=(15, 6))
-        plt.plot(daily_nulls['date'], daily_nulls['count'], marker='o', linestyle='-', color='skyblue', markersize=2)
-        plt.title(f'Nulos Diarios en "{col}" - {title}')
-        plt.xlabel('Fecha')
-        plt.ylabel('Cantidad de Nulos')
-        plt.xticks(rotation=45)
-        plt.grid(axis='y', linestyle='--')
-        plt.tight_layout()
-
-        # Guardar la gráfica
-        base_output_path = Path(f'graphs/nan_detection/{title}')
-        base_output_path.mkdir(parents=True, exist_ok=True)
-        output_path = base_output_path / f'daily_nulls_{col}_{title}.png'
-        plt.savefig(output_path)
-        plt.close()
-
-
-def plot_boxplot(x, data, boxplot_name="boxplot", title="Data"):  # x = ['Modelo 1', 'Modelo 2', 'Modelo 3', 'Modelo 4', 'Modelo 5'] # data = [score1, score2, score3, score4, score5]
-    """
-    Crea un boxplot con los data de los modelos
-    
-    Args:
-    x (list): Lista con los nombres de los modelos
-    data (list): Lista con los data de los modelos
-    boxplot_name (str): Nombre del archivo de salida    
-    """
-    fig7, ax = plt.subplots()
-    ax.set_title(f'Boxplot de {boxplot_name} - {title}')
-    ax.boxplot(data, labels=x)
-    ax.set_xticklabels(x, rotation=45, ha="right")
-    ax.set_ylabel('Puntuación')
-    plt.tight_layout()
-    base_output_path = Path(f'graphs/outliers_detection/{title}/boxplots')
-    base_output_path.mkdir(parents=True, exist_ok=True)
-    plt.savefig(f'{base_output_path}/boxplot-{boxplot_name}.png')
-    plt.close()
-
-
-# CSV con los nan de cada feature
-def create_nan_csv(data_frame, name):
-    nan_df = data_frame.isnull().sum()
-    nan_df = nan_df[nan_df > 0]
-    total = len(data_frame)
-    nan_df = nan_df / total * 100
-    nan_df = nan_df.to_frame().T
-    base_output_path = Path(f'data/nan_detection')
-    base_output_path.mkdir(parents=True, exist_ok=True)
-    nan_df.to_csv(f'{base_output_path}/{name}_nan.csv')
-
+        plot_data(
+            data=daily_nulls,
+            plot_type='line',
+            title=f'Nulos Diarios en "{col}" - {title}',
+            xlabel='Fecha',
+            ylabel='Cantidad de Nulos',
+            save_path=f'graphs/nan_detection/{title}/daily_nulls_{col}_{title}.png',
+            figsize=(15, 6)
+        )
+        
 
 def plot_dataset_boxplot(data_frame, title):
+    """
+    Genera y guarda boxplots para cada característica numérica de un DataFrame.
+
+    Esta función itera a través de cada columna del DataFrame proporcionado y crea un boxplot para los valores de
+    cada característica.
+
+    Args:
+        data_frame (pd.DataFrame): DataFrame que contiene las características (columnas)
+            para las cuales se generarán los boxplots. Puede contener cualquier número de
+            columnas numéricas y una columna 'data' que, si existe, será excluida de la
+            visualización.
+        title (str): Título base para los gráficos generados. Este título se complementa con
+            el nombre de la característica para cada gráfico generado, proporcionando un
+            contexto claro sobre qué característica está siendo visualizada.
+
+    Ejemplo de Uso:
+        plot_dataset_boxplot(data_frame=df, title='Análisis de Features')
+    """
     print(f" - Processing DataFrame: {title}")
     columns = data_frame.columns.to_list()
-    print(f"Columns: {columns}")
-    if 'data' in columns:
-        columns.remove('data')
-    
+    print(f"Columns: {columns}")    
     for feature_name in columns:
-        feature_data = data_frame[feature_name].values
-        plot_boxplot([feature_name], feature_data, feature_name, title)
+        feature_data = data_frame[[feature_name]].melt(var_name='Feature', value_name='Value')
+        
+        # Crear un boxplot para la columna actual
+        plot_data(
+            data=feature_data,
+            plot_type='box',
+            title=f'Boxplot of {feature_name} - {title}',
+            xlabel='Feature',
+            ylabel='Value',
+            save_path=f'graphs/outliers_detection/{title}/boxplots/boxplot-{feature_name}.png',
+            x='Feature',
+            y='Value'
+        )
+        
+
+
+def plot_dataset_boxplot_by_day(data_frame, title):
+    """
+    Genera y guarda boxplots diarios para cada característica (feature) del DataFrame,
+    asumiendo que el índice del DataFrame es de tipo datetime y representa las fechas.
+    
+    Esta función crea un boxplot para cada día presente en el índice del DataFrame y para
+    cada característica numérica, permitiendo la visualización de la distribución diaria
+    de los valores de cada característica. 
+
+    Args:
+        data_frame (pd.DataFrame): DataFrame que contiene los datos a ser analizados.
+            El índice del DataFrame debe ser de tipo datetime, ya que se utiliza para
+            agrupar los datos por día. Las columnas deben representar características
+            numéricas que se desean analizar.
+        title (str): Título base para los gráficos generados. Este título se complementa
+            con el nombre de la característica y la fecha para cada gráfico generado,
+            facilitando la identificación y comparación de distribuciones diarias.
+
+    Notas:
+        - Es importante que el índice del DataFrame esté en formato datetime para
+          que la agrupación por día funcione correctamente.
+        - Los gráficos generados se guardan en una estructura de directorios organizada
+          por el título del análisis, año y mes, y finalmente por característica, lo que
+          ayuda a mantener los resultados organizados y accesibles para futuras consultas.
+    
+    Ejemplo de Uso:
+        plot_dataset_boxplot_by_day(data_frame=df, title='Análisis Preliminar Diario')
+    """
+    print(f" - Processing DataFrame: {title} - Boxplot por Día")
+    data_frame = data_frame.copy()
+
+    for feature_column in data_frame.columns:
+        print(f"Processing feature: {feature_column}")
+        # Excluir cualquier columna no numérica de las características a graficar.
+        if pd.api.types.is_numeric_dtype(data_frame[feature_column]):
+            # Agrupar los datos por fecha (índice) y preparar los datos para cada día.
+            grouped_data = data_frame.groupby(data_frame.index.date)[feature_column].apply(list).reset_index(name='values')
+            grouped_data['date'] = pd.to_datetime(grouped_data['index'])
+
+            for _, row in grouped_data.iterrows():
+                print(f"Processing date: {row['index']}")
+                date = row['index']
+                daily_data = pd.DataFrame({feature_column: row['values']})
+                
+                # Usar la función 'plot_data' para crear y guardar el boxplot.
+                plot_data(
+                    data=daily_data,
+                    plot_type='box',
+                    title=f'{title} - {feature_column} por Día - {date.strftime("%Y-%m-%d")}',
+                    xlabel='Día',
+                    ylabel=f'Valores de {feature_column}',
+                    save_path=f'graphs/outliers_detection/{title}/daily/{date.strftime("%Y_%m")}/{feature_column}/boxplot_{date.strftime("%Y_%m_%d")}_{title}.png',
+                    figsize=(10, 6)
+                )
 
 
 def plot_dataset_features(data_frame, title):
-    # Make a graph for each feature
+    """
+    Genera y guarda un gráfico para cada característica del DataFrame.
+
+    Args:
+        data_frame (pd.DataFrame): DataFrame con los datos a graficar.
+        title (str): Título para usar en los gráficos y nombres de archivos.
+
+    Ejemplo de Uso:
+        plot_dataset_features(data_frame=df, title='Análisis de Features')
+    """
     for feature in data_frame.columns:
-        if feature == 'data':
-            continue
-        plt.figure(figsize=(12, 8))
-        plt.plot(data_frame[feature], marker='o', linestyle='', color='skyblue', markersize=2)
-        plt.title(f'{feature} - {title}')
-        plt.xlabel('Fecha')
-        plt.ylabel('Valor')
-        plt.xticks(rotation=45)
-        plt.grid(axis='y', linestyle='--')
-        plt.tight_layout()
+        print("Processing feature:", feature)
+        # Construir la ruta de guardado del gráfico
         base_output_path = Path(f'graphs/outliers_detection/{title}/year')
-        base_output_path.mkdir(parents=True, exist_ok=True)
-        plt.savefig(f'{base_output_path}/graph-{feature}.png')
-        plt.close()
+        save_path = base_output_path / f'graph-{feature}.png'
+
+        # Usar la función plot_data para generar y guardar el gráfico
+        plot_data(
+            data=data_frame,
+            plot_type='scatter',
+            title=f'{feature} - {title}',
+            xlabel='Fecha',
+            ylabel='Valor',
+            save_path=save_path,
+            figsize=(12, 8),
+            edgecolor="none",
+            x='data', 
+            y=feature,
+            color='skyblue',  # Color de los puntos o línea
+            marker='o',  # Tipo de marcador, solo aplica para scatter
+            linestyle=''
+        )
 
 
-def plot_hourly_feature_per_day(data_frame, date_column, title):
+def plot_hourly_feature_per_day(data_frame, title):
+    print(f" - Processing DataFrame: {title} - Hourly Feature per Day")
     data_frame = data_frame.copy()
     
+    # Añadir columnas para fecha y hora
+    data_frame['date'] = data_frame.index.date
+    data_frame['hour'] = data_frame.index.hour
+    # Obtener las fechas únicas para iterar sobre ellas
+    unique_dates = data_frame['date'].unique()
+
     for feature_column in data_frame.columns:
+        print(f"Processing feature: {feature_column}")
         # Asegurarse de que la columna de interés no sea completamente nula
         if data_frame[feature_column].isnull().all():
             print(f"Column {feature_column} is completely null.")
             return
         
-        # Añadir columnas para fecha y hora
-        data_frame['date'] = data_frame.index.date
-        data_frame['hour'] = data_frame.index.hour
-            
-        # Obtener las fechas únicas para iterar sobre ellas
-        unique_dates = data_frame['date'].unique()
-        
         for date in unique_dates:
             # Filtrar por fecha específica
             daily_data = data_frame[data_frame['date'] == date]
             # Contar la cantidad de registros por hora (podrías cambiar esto por sum(), mean(), etc.)
-            daily_data = daily_data.groupby('hour')[feature_column].mean().reset_index()
+            hourly_data = daily_data.groupby('hour')[feature_column].mean().reset_index()
 
-            # Graficar
-            plt.figure(figsize=(12, 8))
-            plt.scatter(daily_data['hour'], daily_data[feature_column], color='skyblue')
-            plt.xticks(range(0, 24), [f"{hour}:00" for hour in range(0, 24)], rotation=45)
-            plt.title(f'{title} - {feature_column} por Hora del Día - {date}')
-            plt.xlabel('Hora del Día')
-            plt.ylabel(f'Cantidad de {feature_column}')
-            plt.grid(axis='y', linestyle='--')
-            plt.tight_layout()
+            x_ticks = list(range(0, 24))  # Horas del día.
+            x_tick_labels = [f"{hour}:00" for hour in x_ticks]  # Etiquetas personalizadas para las horas.
 
-            # Guardar la gráfica
-            year_month = pd.to_datetime(date).strftime('%Y_%m')
-            output_path = Path(f'graphs/outliers_detection/{title}/daily/{year_month}/{feature_column}') / f'hourly_feature_scatter_{date}_{title}.png'
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            plt.savefig(output_path)
-            plt.close()
+
+            plot_data(
+                data=hourly_data,
+                plot_type='scatter',
+                title=f'{title} - {feature_column} por Hora del Día - {date}',
+                xlabel='Hora del Día',
+                ylabel=f'Promedio de {feature_column}',
+                save_path=f'graphs/outliers_detection/{title}/daily/{date.strftime("%Y_%m")}/{feature_column}/hourly_feature_scatter_{date}_{title}.png',
+                x=hourly_data.index,
+                y=feature_column,
+                edgecolor="none",
+                xticks=x_ticks,
+                xticklabels=x_tick_labels,
+                color='skyblue'
+            )
+
 
 def plot_correlation_matrix(correlation_matrix, title):
-    # Configuración para mejorar la visualización
-    plt.figure(figsize=(10, 8))
-
-    # Crear el mapa de calor
-    sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', fmt=".2f", linewidths=.05)
-
-    # Títulos y etiquetas
-    plt.title(f'Matriz de Correlación de {title}')
-    output_path = Path(f'graphs/correlation_matrix') / f'correlation_matrix_{title}.png'
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(output_path)
-    plt.close()
+    plot_data(
+        data=correlation_matrix,
+        plot_type='heatmap',
+        title=f'Matriz de Correlación de {title}',
+        save_path=f'graphs/correlation_matrix/correlation_matrix_{title}.png',
+        annot=True,  # Muestra los valores dentro de cada celda
+        cmap='coolwarm',  # Colormap
+        fmt=".2f",  # Formato de los números dentro de las celdas
+        linewidths=.05  # Ancho de las líneas que separan las celdas
+    )
