@@ -18,6 +18,7 @@ def plot_data(data, plot_type='bar', title='', xlabel='', ylabel='', save_path=N
     """
     plt.figure(figsize=kwargs.pop('figsize', (10, 6)))
     xticks = kwargs.pop('xticks', None)
+    rotation = kwargs.pop('rotation', None)
     xticklabels = kwargs.pop('xticklabels', None)
     
     if plot_type == 'bar':
@@ -38,7 +39,7 @@ def plot_data(data, plot_type='bar', title='', xlabel='', ylabel='', save_path=N
     plt.ylabel(ylabel)
 
     if xticks is not None and xticklabels is not None:
-        plt.xticks(ticks=xticks, labels=xticklabels)
+        plt.xticks(ticks=xticks, labels=xticklabels, rotation=rotation)
 
     plt.tight_layout()
     
@@ -90,7 +91,6 @@ def plot_hourly_nulls_per_day(data_frame, title):
             # Contar la cantidad de nulos parciales por hora
             daily_data = daily_data.groupby('hour')['partial_nulls'].count().reset_index(name='count')
 
-            # Preparar datos para la función de gráficos general
             plot_data(
                 data=daily_data, 
                 plot_type='bar',
@@ -105,20 +105,17 @@ def plot_hourly_nulls_per_day(data_frame, title):
             )
 
 
-
 def plot_daily_nulls_per_column(data_frame, title):
     data_frame = data_frame.copy()
-    
-    # Crear un DataFrame con cada día del año en el rango del dataset
-    start_date = data_frame.index.min().date()
-    end_date = data_frame.index.max().date()
-    all_dates = pd.DataFrame({'date': pd.date_range(start=start_date, end=end_date, freq='D')})
-    
-    # Convertir 'date' en all_dates a tipo date para compatibilidad
-    all_dates['date'] = all_dates['date'].dt.date
-    
-    # Identificar columnas que no son completamente nulas y tienen al menos un valor nulo
+
+    # Identificar las columnas que tienen al menos un valor nulo pero no son completamente nulas
     cols_with_some_nulls = [col for col in data_frame.columns if data_frame[col].isnull().any() and not data_frame[col].isnull().all()]
+
+    # Crear un DataFrame con cada día en el rango del índice del DataFrame original
+    start_date = data_frame.index.min()
+    end_date = data_frame.index.max()
+    all_dates = pd.DataFrame(index=pd.date_range(start=start_date, end=end_date, freq='D'))
+    all_dates['date'] = all_dates.index.date  # Añadir una columna de fechas como date objects para facilitar la fusión
 
     for col in cols_with_some_nulls:
         # Contar los nulos en la columna actual por día
@@ -130,7 +127,6 @@ def plot_daily_nulls_per_column(data_frame, title):
         # Fusionar con el DataFrame de todos los días, asegurando todos los días del año estén presentes
         daily_nulls = pd.merge(all_dates, nulls_by_day, on='date', how='left').fillna(0)
 
-        # Graficar
         plot_data(
             data=daily_nulls,
             plot_type='line',
@@ -167,7 +163,6 @@ def plot_dataset_boxplot(data_frame, title):
     for feature_name in columns:
         feature_data = data_frame[[feature_name]].melt(var_name='Feature', value_name='Value')
         
-        # Crear un boxplot para la columna actual
         plot_data(
             data=feature_data,
             plot_type='box',
@@ -179,7 +174,6 @@ def plot_dataset_boxplot(data_frame, title):
             y='Value'
         )
         
-
 
 def plot_dataset_boxplot_by_day(data_frame, title):
     """
@@ -221,18 +215,16 @@ def plot_dataset_boxplot_by_day(data_frame, title):
             grouped_data['date'] = pd.to_datetime(grouped_data['index'])
 
             for _, row in grouped_data.iterrows():
-                print(f"Processing date: {row['index']}")
                 date = row['index']
                 daily_data = pd.DataFrame({feature_column: row['values']})
                 
-                # Usar la función 'plot_data' para crear y guardar el boxplot.
                 plot_data(
                     data=daily_data,
                     plot_type='box',
                     title=f'{title} - {feature_column} por Día - {date.strftime("%Y-%m-%d")}',
                     xlabel='Día',
                     ylabel=f'Valores de {feature_column}',
-                    save_path=f'graphs/outliers_detection/{title}/daily/{date.strftime("%Y_%m")}/{feature_column}/boxplot_{date.strftime("%Y_%m_%d")}_{title}.png',
+                    save_path=f'graphs/outliers_detection/{title}/boxplot/{feature_column}/daily/{date.strftime("%Y_%m")}/boxplot_{date.strftime("%Y_%m_%d")}_{title}.png',
                     figsize=(10, 6)
                 )
 
@@ -251,10 +243,9 @@ def plot_dataset_features(data_frame, title):
     for feature in data_frame.columns:
         print("Processing feature:", feature)
         # Construir la ruta de guardado del gráfico
-        base_output_path = Path(f'graphs/outliers_detection/{title}/year')
+        base_output_path = Path(f'graphs/outliers_detection/{title}/scatter/year')
         save_path = base_output_path / f'graph-{feature}.png'
 
-        # Usar la función plot_data para generar y guardar el gráfico
         plot_data(
             data=data_frame,
             plot_type='scatter',
@@ -276,11 +267,8 @@ def plot_hourly_feature_per_day(data_frame, title):
     print(f" - Processing DataFrame: {title} - Hourly Feature per Day")
     data_frame = data_frame.copy()
     
-    # Añadir columnas para fecha y hora
-    data_frame['date'] = data_frame.index.date
-    data_frame['hour'] = data_frame.index.hour
     # Obtener las fechas únicas para iterar sobre ellas
-    unique_dates = data_frame['date'].unique()
+    unique_dates = pd.Series(data_frame.index.date).unique()
 
     for feature_column in data_frame.columns:
         print(f"Processing feature: {feature_column}")
@@ -291,13 +279,12 @@ def plot_hourly_feature_per_day(data_frame, title):
         
         for date in unique_dates:
             # Filtrar por fecha específica
-            daily_data = data_frame[data_frame['date'] == date]
+            daily_data = data_frame[data_frame.index.date == date]
             # Contar la cantidad de registros por hora (podrías cambiar esto por sum(), mean(), etc.)
-            hourly_data = daily_data.groupby('hour')[feature_column].mean().reset_index()
+            hourly_data = daily_data.groupby(daily_data.index.hour)[feature_column].mean().reset_index()
 
             x_ticks = list(range(0, 24))  # Horas del día.
             x_tick_labels = [f"{hour}:00" for hour in x_ticks]  # Etiquetas personalizadas para las horas.
-
 
             plot_data(
                 data=hourly_data,
@@ -305,11 +292,12 @@ def plot_hourly_feature_per_day(data_frame, title):
                 title=f'{title} - {feature_column} por Hora del Día - {date}',
                 xlabel='Hora del Día',
                 ylabel=f'Promedio de {feature_column}',
-                save_path=f'graphs/outliers_detection/{title}/daily/{date.strftime("%Y_%m")}/{feature_column}/hourly_feature_scatter_{date}_{title}.png',
+                save_path=f'graphs/outliers_detection/{title}/scatter/{feature_column}/daily/{date.strftime("%Y_%m")}/hourly_feature_scatter_{date}_{title}.png',
                 x=hourly_data.index,
                 y=feature_column,
                 edgecolor="none",
                 xticks=x_ticks,
+                rotation=45,
                 xticklabels=x_tick_labels,
                 color='skyblue'
             )

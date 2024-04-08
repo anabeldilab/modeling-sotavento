@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from pathlib import Path
 from sklearn.impute import SimpleImputer
 import concurrent.futures
@@ -49,7 +50,7 @@ def drop_null_if_above_percentage(data_frame, axis=0, max_null_pct=50):
     return data_frame.dropna(axis=axis, thresh=threshold)
 
 
-def impute_nan(data_frame, numeric_strategy='mean', non_numeric_strategy='most_frequent'):
+def impute_nan(data_frame, numeric_strategy='mean', non_numeric_strategy='most_frequent', interpolation_method=None):
     """
     Imputa los valores NaN de un DataFrame utilizando estrategias diferentes para columnas numéricas y no numéricas.
 
@@ -61,11 +62,17 @@ def impute_nan(data_frame, numeric_strategy='mean', non_numeric_strategy='most_f
     print(f'Imputando NaN con estrategias: numérico={numeric_strategy}, no numérico={non_numeric_strategy}')
     data_frame_copy = data_frame.copy()
 
+    numeric_cols = data_frame_copy.select_dtypes(include=['number']).columns
+
     # Imputación para columnas numéricas
     if numeric_strategy in ['mean', 'median']:
-        numeric_cols = data_frame_copy.select_dtypes(include=['number']).columns
         numeric_imputer = SimpleImputer(strategy=numeric_strategy)
         data_frame_copy[numeric_cols] = numeric_imputer.fit_transform(data_frame_copy[numeric_cols])
+    elif numeric_strategy == 'interpolate':
+        # Asegura que el método de interpolación se haya proporcionado
+        if not interpolation_method:
+            raise ValueError("Interpolation method must be specified when numeric_strategy is 'interpolate'.")
+        data_frame_copy[numeric_cols] = data_frame_copy[numeric_cols].apply(lambda x: x.interpolate(method=interpolation_method))
 
     # Imputación para columnas no numéricas utilizando 'most_frequent'
     non_numeric_cols = data_frame_copy.select_dtypes(exclude=['number']).columns
@@ -144,6 +151,46 @@ def save_processed_data(data, name, processed_data_directory_path):
     data.to_csv(output_path, index=False)
 
 
+def outlier_detection(data_frame, threshold=3):
+    """
+    Detecta outliers en un DataFrame utilizando el método de puntuación Z (Z-score).
+
+    Args:
+        data_frame: DataFrame de pandas.
+        threshold: Umbral de puntuación Z para considerar un valor como un outlier.
+    """
+    # Calcular la puntuación Z de forma diaria para cada columna (La fila son 10 minutos)
+    # Agrupar por día y calcular la media y la desviación estándar
+    daily_z_scores = data_frame.groupby(data_frame.index.date).transform(lambda x: (x - x.mean()) / x.std())
+    # Calcular los outliers basados en la puntuación Z
+    return daily_z_scores.abs() > threshold
+
+
+
+def outlier_treatment(data_frame, threshold=3, numeric_strategy='interpolate', interpolation_method='linear'):
+    """
+    Trata los outliers de un DataFrame utilizando el método de puntuación Z (Z-score) para identificarlos
+    y luego imputa esos outliers con la estrategia especificada para columnas numéricas.
+
+    Args:
+        data_frame: DataFrame de pandas.
+        threshold: Umbral de puntuación Z para considerar un valor como outlier.
+        numeric_strategy: Estrategia de imputación para columnas numéricas ('mean' o 'median').
+    """
+    # Identifica outliers
+    outliers = outlier_detection(data_frame, threshold=threshold)
+    print(f'Número de outliers detectados: {outliers.sum().sum()}')
+    
+    # Marcar outliers como NaN
+    data_frame[outliers] = np.nan
+
+    plot_daily_nulls_per_column(data_frame, "outliers")
+    
+    # Imputar los NaN (anteriormente outliers) con la estrategia especificada
+    return impute_nan(data_frame, numeric_strategy=numeric_strategy, non_numeric_strategy=None, interpolation_method=interpolation_method)
+
+
+
 def correlation_matrix(data_frame, name):
     """
     Crea y guarda una matriz de correlación de un DataFrame de pandas.
@@ -171,6 +218,7 @@ def process_data(raw_text_file_path):
     modify_dataset_columns(data)
     data = treat_nan(data, max_null_column_pct=90, max_null_row_pct=0)
     data = normalize_data_zscore(data)
+    data = outlier_treatment(data, threshold=3, numeric_strategy='interpolate', interpolation_method='linear')
     return data, name
 
 
@@ -184,8 +232,8 @@ def plot_data(data, name):
     """
     plot_dataset_boxplot(data, name)
     plot_dataset_features(data, name)
-    plot_hourly_feature_per_day(data, name)
-    plot_dataset_boxplot_by_day(data, name)
+    #plot_hourly_feature_per_day(data, name)
+    #plot_dataset_boxplot_by_day(data, name)
 
 
 def main():
@@ -198,12 +246,12 @@ def main():
 
     data_names = []
     for file_path in raw_data_directory_path.glob('*.txt'):
-        data, name = process_data(file_path, processed_data_directory_path)
+        data, name = process_data(file_path)
         correlation_matrix(data, name)
         save_processed_data(data, name, processed_data_directory_path)
         data_names.append((data, name))
 
-    with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=5) as executor:
         futures = [executor.submit(plot_data, data, name) for data, name in data_names]
         
         for future in concurrent.futures.as_completed(futures):
