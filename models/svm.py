@@ -1,3 +1,5 @@
+from pathlib import Path
+import joblib
 from sklearn.svm import SVR
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
@@ -28,27 +30,22 @@ def perform_svr(csv_file, name, dependent_variable, independent_variables):
     predictions_vs_actuals(model, "svm", name, X, y)
 
     # Residuals vs Fitted
-    #plot_residuals_vs_fitted(model, "svm", name)
+    # plot_residuals_vs_fitted(model, "svm", name)
+
+    output_path = Path("models/svm/", "svm_model.pkl")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, output_path)
+
+
+def load_svm_model():
+    model = joblib.load("models/svm/svm_model.pkl")
+    return model
 
 
 def svm_datasets():
     perform_svr(
-        csv_file="data/processed/Analizador AC Fotovoltaica Este (A11).csv",
-        name="Analizador AC Fotovoltaica Este (A11)",
+        csv_file="data/processed/Analizador AC Fotovoltaica Este (A11) + Radiacion Fotovoltaica Este (R1).csv",
+        name="Analizador AC Fotovoltaica Sur (A12) + Radiacion Este (R1)",
         dependent_variable="W",
-        independent_variables=["V", "I"],
-    )
-
-    perform_svr(
-        csv_file="data/processed/Analizador AC Fotovoltaica Oeste (A13).csv",
-        name="Analizador AC Fotovoltaica Oeste (A13)",
-        dependent_variable="W",
-        independent_variables=["V", "I"],
-    )
-
-    perform_svr(
-        csv_file="data/processed/Analizador AC Fotovoltaica Sur (A12).csv",
-        name="Analizador AC Fotovoltaica Sur (A12)",
-        dependent_variable="W",
-        independent_variables=["V", "I"],
+        independent_variables=["radiation"],
     )

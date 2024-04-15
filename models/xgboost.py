@@ -1,3 +1,5 @@
+from pathlib import Path
+import joblib
 import pandas as pd
 from xgboost import XGBRegressor
 from sklearn.preprocessing import StandardScaler
@@ -32,26 +34,16 @@ def perform_xgboost(
 
     #plot_residuals_vs_fitted(model, MODEL_NAME, name)
 
+    output_path = Path("models/xgboost/", 'xgboost_model.pkl')
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, output_path)
+
 
 
 def xgboost_datasets():
     perform_xgboost(
-        csv_file="data/processed/Analizador AC Fotovoltaica Este (A11).csv",
-        name="Analizador AC Fotovoltaica Este (A11)",
+        csv_file="data/processed/Analizador AC Fotovoltaica Este (A11) + Radiacion Fotovoltaica Este (R1).csv",
+        name="Analizador AC Fotovoltaica Sur (A12) + Radiacion Este (R1)",
         dependent_variable="W",
-        independent_variables=["V", "I"],
-    )
-
-    perform_xgboost(
-        csv_file="data/processed/Analizador AC Fotovoltaica Oeste (A13).csv",
-        name="Analizador AC Fotovoltaica Oeste (A13)",
-        dependent_variable="W",
-        independent_variables=["V", "I"],
-    )
-
-    perform_xgboost(
-        csv_file="data/processed/Analizador AC Fotovoltaica Sur (A12).csv",
-        name="Analizador AC Fotovoltaica Sur (A12)",
-        dependent_variable="W",
-        independent_variables=["V", "I"],
+        independent_variables=["radiation"],
     )
