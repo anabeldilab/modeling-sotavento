@@ -164,15 +164,19 @@ def normalize_data_zscore(data_frame):
 
 def drop_meaningless_columns(data_frame):
     """
-    Removes unnecessary columns from a DataFrame: 'id' or 'id_anemo'.
+    Removes unnecessary columns from a DataFrame: 'id', 'id_anemo' and 'n_datos'.
 
     Args:
         data_frame (pd.DataFrame): The pandas DataFrame to modify
     """
-    if "id" in data_frame.columns:
-        data_frame.drop(columns=["id"], inplace=True)
-    elif "id_anemo" in data_frame.columns:
-        data_frame.drop(columns=["id_anemo"], inplace=True)
+    data_frame_copy = data_frame.copy()
+    if "id" in data_frame_copy.columns:
+        data_frame_copy.drop(columns=["id"], inplace=True)
+    if "id_anemo" in data_frame_copy.columns:
+        data_frame_copy.drop(columns=["id_anemo"], inplace=True)
+    if "n_datos" in data_frame_copy.columns:
+        data_frame_copy.drop(columns=["n_datos"], inplace=True)
+    return data_frame_copy
 
 
 def make_datetime_index(data_frame):
@@ -182,11 +186,12 @@ def make_datetime_index(data_frame):
     Args:
         data_frame (pd.DataFrame): The pandas DataFrame to modify
     """
-    data_frame["data"] = pd.to_datetime(data_frame["data"], format="%d/%m/%Y %H:%M:%S")
-    data_frame.set_index("data", inplace=True)
+    data_frame_copy = data_frame.copy()
+    data_frame_copy["data"] = pd.to_datetime(data_frame_copy["data"], format="%d/%m/%Y %H:%M:%S")
+    data_frame_copy.set_index("data", inplace=True)
+    return data_frame_copy
 
 
-# TODO: Change the function to return a modified copy instead of modifying the original DataFrame
 def modify_dataset_columns(data_frame):
     """
     Makes specific modifications to the columns of a pandas DataFrame.
@@ -198,8 +203,10 @@ def modify_dataset_columns(data_frame):
         assumes that `data_frame` is mutable and thus is modified directly
         without returning a copy or a modified version of it.
     """
-    drop_meaningless_columns(data_frame)
-    make_datetime_index(data_frame)
+    data_frame_copy = data_frame.copy()
+    data_frame_copy = drop_meaningless_columns(data_frame_copy)
+    data_frame_copy = make_datetime_index(data_frame_copy)
+    return data_frame_copy
 
 
 def save_processed_data(data, name, processed_data_directory_path):
@@ -290,7 +297,7 @@ def process_data(raw_text_file_path):
         raw_text_file_path: Path to the raw text file.
     """
     name, data = load_and_convert_to_csv(raw_text_file_path)
-    modify_dataset_columns(data)
+    data = modify_dataset_columns(data)
     data = treat_nan(data, max_null_column_pct=90, max_null_row_pct=0)
     data = normalize_data_zscore(data)
     data = outlier_treatment(
@@ -307,10 +314,23 @@ def plot_data(data, name):
         data: pandas DataFrame.
         name: Base name of the file.
     """
-    plot_dataset_boxplot(data, name)
-    plot_dataset_features(data, name)
+    #plot_dataset_boxplot(data, name)
+    #plot_dataset_features(data, name)
     # plot_hourly_feature_per_day(data, name)
     # plot_dataset_boxplot_by_day(data, name)
+
+
+def join_radiation_and_ac_data():
+    """
+    Joins the radiation and AC data, aligning the timestamps.
+    """
+    ac_data = pd.read_csv("data/processed/Analizador AC Fotovoltaica Este (A11).csv")
+    radiation_data = pd.read_csv("data/processed/Radiacion Fotovoltaica Este (R1).csv")
+    # Quitar valor_max,valor_min y cambiar el nombre de valor_med a radiación
+    radiation_data.drop(columns=["valor_max", "valor_min"], inplace=True)
+    radiation_data.rename(columns={"valor_med": "radiation"}, inplace=True)
+    joined_data = ac_data.join(radiation_data, how="outer")
+    joined_data.to_csv("data/processed/Analizador AC Fotovoltaica Este (A11) + Radiacion Fotovoltaica Este (R1).csv", index=False)
 
 
 def main():
@@ -327,6 +347,9 @@ def main():
         perform_correlation_matrix(data, name)
         save_processed_data(data, name, processed_data_directory_path)
         data_names.append((data, name))
+
+    join_radiation_and_ac_data()
+
 
     with concurrent.futures.ProcessPoolExecutor(max_workers=5) as executor:
         futures = [executor.submit(plot_data, data, name) for data, name in data_names]
